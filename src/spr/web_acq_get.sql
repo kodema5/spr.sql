@@ -141,7 +141,7 @@ $$ language plpgsql;
         a = spr.web_acq_get(sid || jsonb_build_object(
             'logger_ids', array['dev1']
         ));
-        raise warning '---%', jsonb_pretty(a);
+        -- raise warning '---%', jsonb_pretty(a);
 
         return next ok(true, 'hello');
     end;
