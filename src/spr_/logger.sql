@@ -4,7 +4,7 @@ create table if not exists spr_.logger (
     name text not null,
     tags ltree[],
     is_enabled boolean default true,
-    eval_method text default 'avg',
+    calc_method text default 'avg',
 
     has_ph boolean default false,
     min_ph float,

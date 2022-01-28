@@ -51,41 +51,53 @@ create type spr.get_acq_calcs_t as (
 
 create function spr.get_acq_calcs(
     logger spr_.logger,
-    avg spr.get_acq_avgs_t
+    avg spr.get_acq_avgs_t,
+    calc_method text default 'avg'
 ) returns spr.get_acq_calcs_t as $$
-declare
-    a spr.get_acq_calcs_t;
-begin
-    if logger.eval_method = 'mid' then
-        a.ph = (avg.min_ph + avg.max_ph) / 2.0;
-        a.debit = (avg.min_debit + avg.max_debit) / 2.0;
-        a.cod = (avg.min_cod + avg.max_cod) / 2.0;
-        a.nh3n = (avg.min_nh3n + avg.max_nh3n) / 2.0;
-        a.tss = (avg.min_tss + avg.max_tss) / 2.0;
-
-    else -- by default use avg
-        a.ph = avg.avg_ph;
-        a.debit = avg.avg_debit;
-        a.cod = avg.avg_cod;
-        a.nh3n = avg.avg_nh3n;
-        a.tss = avg.avg_tss;
-    end if;
-
-
-    a.load_cod = a.debit * a.cod;
-    a.load_nh3n = a.debit * a.nh3n;
-    a.load_tss = a.debit * a.tss;
-    a.load_total = coalesce(a.load_cod, 0.0) + coalesce(a.load_nh3n, 0.0) + coalesce(a.load_tss, 0.0);
-
-    a.errors = spr.errors(
-        logger,
-        avg.n, a.ph, a.debit,
-        a.cod, a.nh3n, a.tss,
-        a.load_cod, a.load_nh3n, a.load_tss, a.load_total
-    );
-    return a;
-end;
-$$ language plpgsql;
+    select jsonb_populate_record(null::spr.get_acq_calcs_t, to_jsonb(td.*))
+    from (
+        select tc.*,
+            spr.errors(
+            logger,
+            avg.n, tc.ph, tc.debit,
+            tc.cod, tc.nh3n, tc.tss,
+            tc.load_cod, tc.load_nh3n, tc.load_tss,
+            tc.load_total) as errors
+        from (
+            select tb.*,
+                coalesce(tb.load_cod, 0.0) + coalesce(tb.load_nh3n, 0.0) + coalesce(tb.load_tss, 0.0) as load_total
+            from (
+                select ta.*,
+                ta.cod * ta.debit as load_cod,
+                ta.nh3n * ta.debit as load_nh3n,
+                ta.tss * ta.debit as load_tss
+                from (
+                    select
+                    case
+                        when calc_method='mid' then (avg.min_ph + avg.max_ph) / 2.0
+                        else avg.avg_ph
+                    end as ph,
+                    case
+                        when calc_method='mid' then (avg.min_debit + avg.max_debit) / 2.0
+                        else avg.avg_debit
+                    end as debit,
+                    case
+                        when calc_method='mid' then (avg.min_cod + avg.max_cod) / 2.0
+                        else avg.avg_cod
+                    end as cod,
+                    case
+                        when calc_method='mid' then (avg.min_nh3n + avg.max_nh3n) / 2.0
+                        else avg.avg_nh3n
+                    end as nh3n,
+                    case
+                        when calc_method='mid' then (avg.min_tss + avg.max_tss) / 2.0
+                        else avg.avg_tss
+                    end as tss
+                ) ta
+            ) tb
+        ) tc
+    ) td;
+$$ language sql stable;
 
 
 create type spr.web_acq_get_it as (
@@ -94,7 +106,8 @@ create type spr.web_acq_get_it as (
     logger_tags text[],
     acq_min_ts bigint,
     acq_max_ts bigint,
-    acq_int_ts bigint
+    acq_int_ts bigint,
+    calc_method text
 );
 
 create function spr.web_acq_get(req jsonb) returns jsonb as $$
@@ -113,7 +126,10 @@ begin
     foreach l in array ls loop
         res = res || jsonb_build_object(
             l.id,(
-                select jsonb_agg(jsonb_strip_nulls(to_jsonb(rs) || to_jsonb(spr.get_acq_calcs(l, rs))))
+                select jsonb_agg(jsonb_strip_nulls(
+                    to_jsonb(rs)
+                    || to_jsonb(spr.get_acq_calcs(l, rs, coalesce(it.calc_method, l.calc_method)))
+                ))
                 from spr.get_acq_avgs(l.id, it.acq_min_ts, it.acq_max_ts, it.acq_int_ts) rs
             )
         );
@@ -135,15 +151,22 @@ $$ language plpgsql;
     begin
         insert into spr_.acq (logger_id, ts, ph) values
             ('dev1', ts, 1.0),
-            ('dev1', ts + 60, 2.0)
+            ('dev1', ts + 60, 2.0),
+            ('dev1', ts + 70, 6.0)
             ;
 
         a = spr.web_acq_get(sid || jsonb_build_object(
             'logger_ids', array['dev1']
         ));
-        -- raise warning '---%', jsonb_pretty(a);
+        return next ok(a['acqs']['dev1'][0]['n']::numeric = 3, 'from 3 acqs');
+        return next ok(a['acqs']['dev1'][0]['ph']::numeric = 3, 'pH value is averaged');
 
-        return next ok(true, 'hello');
+        a = spr.web_acq_get(sid || jsonb_build_object(
+            'logger_ids', array['dev1'],
+            'calc_method', 'mid'
+        ));
+        return next ok(a['acqs']['dev1'][0]['ph']::numeric = 3.5, 'pH value is mid-range');
+
     end;
     $$ language plpgsql;
 \endif
