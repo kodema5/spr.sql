@@ -8,3 +8,4 @@
 \ir get_loggers.sql
 
 \ir web_acq_get.sql
+\ir web_log_put.sql
