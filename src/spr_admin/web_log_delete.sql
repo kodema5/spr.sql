@@ -1,4 +1,6 @@
-create function spr_admin.new_log_partition(ts bigint) returns text as $$
+create function spr_admin.new_log_partition (ts bigint)
+returns text
+as $$
 declare
     d timestamp with time zone = date_trunc('day', to_timestamp(ts));
     t text = 'log_' || to_char(d, 'YYYYMMDD');
@@ -37,24 +39,36 @@ create type spr_admin.web_log_delete_it as (
     log_max_ts bigint
 );
 
-create function spr_admin.web_log_delete (req jsonb) returns jsonb as $$
+create type spr_admin.web_log_delete_t as (
+    count int,
+    min_ts bigint,
+    max_ts bigint
+);
+
+create function spr_admin.web_log_delete (
+    it spr_admin.web_log_delete_it)
+returns spr_admin.web_log_delete_t
+as $$
 declare
-    it spr_admin.web_log_delete_it = jsonb_populate_record(null::spr_admin.web_log_delete_it, spr_admin.auth(req));
+    a spr_admin.web_log_delete_t;
     rs spr_.log[];
-
 begin
-
     it.is_discard = coalesce(it.is_discard, false);
 
-    select coalesce(it.log_min_ts, min(ts)), coalesce(it.log_max_ts, max(ts))
+    select
+        coalesce(it.log_min_ts, min(ts)),
+        coalesce(it.log_max_ts, max(ts))
     into it.log_min_ts, it.log_max_ts
     from only spr_.log;
 
-
     if not it.is_discard and (
-        select count(1) from only spr_.log where ts between it.log_min_ts and it.log_max_ts
+        select count(1)
+        from only spr_.log
+        where ts between it.log_min_ts and it.log_max_ts
     ) <> (
-        select count(1) from spr_.log where ts between it.log_min_ts and it.log_max_ts
+        select count(1)
+        from spr_.log
+        where ts between it.log_min_ts and it.log_max_ts
     )
     then
         raise exception 'error.cross_archive_deletion_is_disallowed';
@@ -67,7 +81,9 @@ begin
         where ts between it.log_min_ts and it.log_max_ts
         returning *
     )
-    select array_agg(ds) into rs from deleted ds;
+    select array_agg(ds)
+    into rs
+    from deleted ds;
 
 
     if not it.is_discard then
@@ -88,14 +104,25 @@ begin
     end;
     end if;
 
-    return jsonb_build_object(
-        'count', count(1),
-        'log_min_ts', min(ts),
-        'log_max_ts', max(ts)
-    )
+    select count(1), min(ts), max(ts)
+    into a.count, a.min_ts, a.max_ts
     from unnest(rs);
+
+    return a;
 end;
 $$ language plpgsql;
+
+
+create function spr_admin.web_log_delete (req jsonb)
+returns jsonb
+as $$
+    select to_jsonb(spr_admin.web_log_delete(
+        jsonb_populate_record(
+            null::spr_admin.web_log_delete_it,
+            spr_admin.auth(req))
+    ))
+$$ language sql stable;
+
 
 \if :test
     create function tests.test_web_log_delete () returns setof text as $$

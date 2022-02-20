@@ -2,7 +2,11 @@ create type spr.auth_t as (
     is_admin boolean
 );
 
-create function spr.auth(req jsonb) returns jsonb as $$
+-- override me
+--
+create function spr.auth( req jsonb )
+returns jsonb
+as $$
 declare
     a spr.auth_t;
 begin

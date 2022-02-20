@@ -1,4 +1,3 @@
-
 create type spr_admin.acq_t as (
     logger_id text,
     ts bigint,
@@ -9,7 +8,9 @@ create type spr_admin.acq_t as (
     debit float
 );
 
-create function spr_admin.to_acq(r spr_.log) returns spr_admin.acq_t as $$
+create function spr_admin.to_acq (r spr_.log)
+returns spr_admin.acq_t
+as $$
     select (
         (r.data)->>'id',
         r.ts,
@@ -29,12 +30,22 @@ create type spr_admin.web_acq_put_it as (
     log_int_ts int
 );
 
-create function spr_admin.web_acq_put(req jsonb) returns jsonb as $$
+create type spr_admin.web_acq_put_t as (
+    count int,
+    logger_count int,
+    log_min_ts bigint,
+    log_max_ts bigint
+);
+
+create function spr_admin.web_acq_put (
+    it spr_admin.web_acq_put_it)
+returns spr_admin.web_acq_put_t
+as $$
 declare
-    it spr_admin.web_acq_put_it = jsonb_populate_record(null::spr_admin.web_acq_put_it, spr_admin.auth(req));
-    a jsonb;
+    a spr_admin.web_acq_put_t;
 begin
-    select coalesce(it.log_min_ts, min(ts)), coalesce(it.log_max_ts, max(ts))
+    select coalesce(it.log_min_ts, min(ts)),
+        coalesce(it.log_max_ts, max(ts))
     into it.log_min_ts, it.log_max_ts
     from only spr_.log;
 
@@ -67,7 +78,8 @@ begin
             rs.debit * rs.nh3n as load_nh3n,
             rs.debit * rs.tss as load_tss
         from raw_acqs rs
-        join spr_.logger ls on ls.id = rs.logger_id
+        join spr_.logger ls
+            on ls.id = rs.logger_id
     ),
     inserted as (
         insert into spr_.acq (
@@ -84,10 +96,14 @@ begin
                 )::ltree[]
             from (
                 select *,
-                coalesce(load_cod, 0.0) + coalesce(load_nh3n,0.0) + coalesce(load_tss,0.0) as load_total
+                coalesce(load_cod, 0.0)
+                    + coalesce(load_nh3n,0.0)
+                    + coalesce(load_tss,0.0)
+                as load_total
                 from acqs
             ) rs
-            join spr_.logger ls on ls.id = rs.logger_id
+            join spr_.logger ls
+                on ls.id = rs.logger_id
         on conflict (logger_id, ts)
         do update set
             n = excluded.n,
@@ -106,17 +122,28 @@ begin
             errors = excluded.errors
         returning *
     )
-    select jsonb_build_object(
-        'count', count(1),
-        'loggers', count(distinct logger_id),
-        'log_min_ts', min(ts),
-        'log_max_ts', max(ts)
-    ) into a
+    select count(1),
+        count(distinct logger_id),
+        min(ts),
+        max(ts)
+    into a.count, a.logger_count, a.log_min_ts, a.log_max_ts
     from inserted;
-
     return a;
+
 end;
 $$ language plpgsql;
+
+
+create function spr_admin.web_acq_put (req jsonb)
+returns jsonb
+as $$
+    select to_jsonb(spr_admin.web_acq_put(
+        jsonb_populate_record(
+            null::spr_admin.web_acq_put_it,
+            spr_admin.auth(req))
+    ))
+$$ language sql stable;
+
 
 \if :test
     create function tests.test_spr_admin_web_acq_put () returns setof text as $$

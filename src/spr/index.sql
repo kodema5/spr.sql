@@ -1,6 +1,6 @@
 \ir to_ts.sql
 \ir trunc_ts.sql
-\ir scaffolding.sql
+\ir test.sql
 
 
 \ir auth.sql

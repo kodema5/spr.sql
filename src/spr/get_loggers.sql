@@ -4,40 +4,54 @@ create type spr.get_loggers_it as (
     logger_tags text[]
 );
 
-create function spr.is_empty(it spr.get_loggers_it) returns boolean as $$
+create function spr.is_empty(
+    it spr.get_loggers_it)
+returns boolean
+as $$
     select case
-        when it is null then true
-        else (
-            (it.logger_ids is null or cardinality(it.logger_ids)=0)
-            and (it.logger_name is null or trim(it.logger_name)='')
-            and (it.logger_tags is null or cardinality(it.logger_tags)=0)
-        )
-        end;
+    when it is null then true
+    else (
+        (it.logger_ids is null or cardinality(it.logger_ids)=0)
+        and (it.logger_name is null or trim(it.logger_name)='')
+        and (it.logger_tags is null or cardinality(it.logger_tags)=0)
+    )
+    end;
 $$ language sql stable;
 
-
-create function spr.get_loggers(it spr.get_loggers_it) returns setof spr_.logger as $$
+create function spr.get_loggers(
+    it spr.get_loggers_it)
+returns setof spr_.logger
+as $$
     select ds
     from spr_.logger ds,
-        (select unnest(coalesce(it.logger_tags, array['*']))) as ts (t)
-    where (it.logger_ids is null or id=any(it.logger_ids))
-    and (it.logger_name is null or name ~* it.logger_name)
+        ( select unnest(coalesce(it.logger_tags, array['*'])) )
+        as ts (t)
+    where ( it.logger_ids is null
+        or id = any(it.logger_ids))
+    and ( it.logger_name is null
+        or name ~* it.logger_name)
     and tags ~ (ts.t::lquery)
 $$ language sql stable;
 
 
 create function spr.get_loggers(
     req jsonb,
-    is_required boolean default true
-) returns setof spr_.logger as $$
+    is_required boolean default true)
+returns setof spr_.logger
+as $$
 declare
     it spr.get_loggers_it = jsonb_populate_record(null::spr.get_loggers_it, req);
 begin
-    if is_required=true and spr.is_empty(it) then
+
+    if is_required = true
+        and spr.is_empty(it)
+    then
         raise exception 'error.empty_get_loggers_parameters';
     end if;
 
-    return query select * from spr.get_loggers(it);
+    return query
+        select *
+        from spr.get_loggers(it);
 end;
 $$ language plpgsql;
 

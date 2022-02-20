@@ -12,12 +12,14 @@ create type spr.get_acq_avgs_t as (
     std_ph float, std_debit float, std_cod  float, std_nh3n  float, std_tss float
 );
 
+
 create function spr.get_acq_avgs(
     logger_id text,
     acq_min_ts bigint,
     acq_max_ts bigint,
-    acq_int_ts bigint
-) returns setof spr.get_acq_avgs_t as $$
+    acq_int_ts bigint)
+returns setof spr.get_acq_avgs_t
+as $$
     select
         acq.logger_id,
         spr.trunc_ts(ts, acq_int_ts) as int_ts,
@@ -36,6 +38,7 @@ create function spr.get_acq_avgs(
     group by acq.logger_id, int_ts
 $$ language sql stable;
 
+
 create type spr.get_acq_calcs_t as (
     ph float,
     debit float,
@@ -49,23 +52,29 @@ create type spr.get_acq_calcs_t as (
     errors text[]
 );
 
+
 create function spr.get_acq_calcs(
     logger spr_.logger,
     avg spr.get_acq_avgs_t,
-    calc_method text default 'avg'
-) returns spr.get_acq_calcs_t as $$
+    calc_method text default 'avg')
+returns spr.get_acq_calcs_t
+as $$
     select jsonb_populate_record(null::spr.get_acq_calcs_t, to_jsonb(td.*))
     from (
         select tc.*,
             spr.errors(
-            logger,
-            avg.n, tc.ph, tc.debit,
-            tc.cod, tc.nh3n, tc.tss,
-            tc.load_cod, tc.load_nh3n, tc.load_tss,
-            tc.load_total) as errors
+                logger,
+                avg.n, tc.ph, tc.debit,
+                tc.cod, tc.nh3n, tc.tss,
+                tc.load_cod, tc.load_nh3n, tc.load_tss,
+                tc.load_total
+            ) as errors
         from (
             select tb.*,
-                coalesce(tb.load_cod, 0.0) + coalesce(tb.load_nh3n, 0.0) + coalesce(tb.load_tss, 0.0) as load_total
+                coalesce(tb.load_cod, 0.0)
+                    + coalesce(tb.load_nh3n, 0.0)
+                    + coalesce(tb.load_tss, 0.0)
+                as load_total
             from (
                 select ta.*,
                 ta.cod * ta.debit as load_cod,
@@ -110,36 +119,63 @@ create type spr.web_acq_get_it as (
     calc_method text
 );
 
-create function spr.web_acq_get(req jsonb) returns jsonb as $$
+create type spr.web_acq_get_t as (
+    loggers spr_.logger[],
+    acqs jsonb
+);
+
+create function spr.web_acq_get(
+    it spr.web_acq_get_it)
+returns spr.web_acq_get_t
+as $$
 declare
-    it spr.web_acq_get_it = jsonb_populate_record(null::spr.web_acq_get_it, spr.auth(req));
-    ls spr_.logger[];
+    a spr.web_acq_get_t;
     l spr_.logger;
     res jsonb = jsonb_build_object();
 begin
-    select array_agg(rs) into ls from spr.get_loggers(req) rs;
+    select array_agg(rs)
+    into a.loggers
+    from spr.get_loggers(to_jsonb(it)) rs;
 
-    select coalesce(it.acq_min_ts, min(ts)), coalesce(it.acq_max_ts, max(ts))
+    select coalesce(it.acq_min_ts, min(ts)),
+        coalesce(it.acq_max_ts, max(ts))
     into it.acq_min_ts, it.acq_max_ts
     from only spr_.acq;
 
-    foreach l in array ls loop
+    foreach l in array a.loggers loop
         res = res || jsonb_build_object(
-            l.id,(
+            l.id, (
                 select jsonb_agg(jsonb_strip_nulls(
                     to_jsonb(rs)
-                    || to_jsonb(spr.get_acq_calcs(l, rs, coalesce(it.calc_method, l.calc_method)))
+                    || to_jsonb(spr.get_acq_calcs(
+                        l,
+                        rs,
+                        coalesce(it.calc_method, l.calc_method)))
                 ))
-                from spr.get_acq_avgs(l.id, it.acq_min_ts, it.acq_max_ts, it.acq_int_ts) rs
+                from spr.get_acq_avgs (
+                    l.id,
+                    it.acq_min_ts,
+                    it.acq_max_ts,
+                    it.acq_int_ts
+                ) rs
             )
         );
     end loop;
-    return jsonb_build_object(
-        'loggers', ls,
-        'acqs', res
-    );
+    a.acqs = res;
+    return a;
 end;
-$$ language plpgsql;
+$$ language plpgsql stable;
+
+
+create function spr.web_acq_get (req jsonb)
+returns jsonb
+as $$
+    select to_jsonb(spr.web_acq_get(
+        jsonb_populate_record(
+            null::spr.web_acq_get_it,
+            spr.auth(req))
+    ))
+$$ language sql;
 
 
 \if :test

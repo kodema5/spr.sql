@@ -5,30 +5,47 @@ create type spr_admin.web_acq_get_it as (
     acq_max_ts bigint
 );
 
+create type spr_admin.web_acq_get_t as (
+    acqs jsonb
+);
 
-create function spr_admin.web_acq_get(req jsonb) returns jsonb as $$
+create function spr_admin.web_acq_get (
+    it spr_admin.web_acq_get_it)
+returns spr_admin.web_acq_get_t
+as $$
 declare
-    it spr_admin.web_acq_get_it = jsonb_populate_record(null::spr_admin.web_acq_get_it, spr_admin.auth(req));
-    a jsonb;
+    a spr_admin.web_acq_get_t;
 begin
-    select coalesce(it.acq_min_ts, min(ts)), coalesce(it.acq_max_ts, max(ts))
+
+    select coalesce(it.acq_min_ts, min(ts)),
+        coalesce(it.acq_max_ts, max(ts))
     into it.acq_min_ts, it.acq_max_ts
     from only spr_.acq;
 
 
-    return jsonb_build_object(
-        'acqs', (
-            select jsonb_object_agg(logger_id, rows)
-            from (
-                select ds.logger_id, jsonb_agg(to_jsonb(ds)) as rows
-                from spr_.acq ds
-                where ts between it.acq_min_ts and it.acq_max_ts
-                group by ds.logger_id
-            ) rs
-        )
-    );
+    select jsonb_object_agg(logger_id, rows)
+    into a.acqs
+    from (
+        select ds.logger_id,
+            jsonb_agg(to_jsonb(ds)) as rows
+        from spr_.acq ds
+        where ts between it.acq_min_ts and it.acq_max_ts
+        group by ds.logger_id
+    ) rs;
+    return a;
 end;
 $$ language plpgsql;
+
+
+create function spr_admin.web_acq_get (req jsonb)
+returns jsonb
+as $$
+    select to_jsonb(spr_admin.web_acq_get(
+        jsonb_populate_record(
+            null::spr_admin.web_acq_get_it,
+            spr_admin.auth(req))
+    ))
+$$ language sql stable;
 
 
 \if :test

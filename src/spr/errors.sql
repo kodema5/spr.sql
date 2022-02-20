@@ -1,13 +1,16 @@
 create function spr.errors (
     p spr_.logger,
-    n bigint, ph float, debit float,
-    cod float, nh3n float, tss float,
+    n bigint,
+    ph float,
+    debit float,
+    cod float,
+    nh3n float,
+    tss float,
     load_cod float default null,
     load_nh3n float default null,
     load_tss float default null,
-    load_total float default null
-
-) returns text[] as $$
+    load_total float default null)
+returns text[] as $$
     select array_agg(err) from (
 
         select case when p.has_ph and ph is null then 'error.missing_ph' else null end
