@@ -1,5 +1,9 @@
-create function spr_admin.new_log_partition (ts bigint)
-returns text
+create function spr_admin.new_log_partition (
+    ts bigint
+)
+    returns text
+    language plpgsql
+    security definer
 as $$
 declare
     d timestamp with time zone = date_trunc('day', to_timestamp(ts));
@@ -25,7 +29,7 @@ begin
         'spr_', 'log');
     return t;
 end;
-$$ language plpgsql;
+$$;
 
 
 
@@ -46,8 +50,11 @@ create type spr_admin.web_log_delete_t as (
 );
 
 create function spr_admin.web_log_delete (
-    it spr_admin.web_log_delete_it)
-returns spr_admin.web_log_delete_t
+    it spr_admin.web_log_delete_it
+)
+    returns spr_admin.web_log_delete_t
+    language plpgsql
+    security definer
 as $$
 declare
     a spr_admin.web_log_delete_t;
@@ -110,22 +117,29 @@ begin
 
     return a;
 end;
-$$ language plpgsql;
+$$;
 
 
-create function spr_admin.web_log_delete (req jsonb)
-returns jsonb
+create function spr_admin.web_log_delete (
+    req jsonb
+)
+    returns jsonb
+    language sql
+    security definer
 as $$
     select to_jsonb(spr_admin.web_log_delete(
         jsonb_populate_record(
             null::spr_admin.web_log_delete_it,
             spr_admin.auth(req))
     ))
-$$ language sql stable;
+$$;
 
 
 \if :test
-    create function tests.test_web_log_delete () returns setof text as $$
+    create function tests.test_web_log_delete ()
+        returns setof text
+        language plpgsql
+    as $$
     declare
         sid jsonb = tests.session_as_admin();
         l spr_.log;
@@ -169,6 +183,6 @@ $$ language sql stable;
         ));
         return next ok(jsonb_typeof(a->'logs') = 'null', 'really gone');
     end;
-    $$ language plpgsql;
+    $$;
 \endif
 

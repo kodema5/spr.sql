@@ -9,8 +9,11 @@ create type spr_admin.web_log_get_t as (
 );
 
 create function spr_admin.web_log_get (
-    it spr_admin.web_log_get_it)
-returns spr_admin.web_log_get_t
+    it spr_admin.web_log_get_it
+)
+    returns spr_admin.web_log_get_t
+    language plpgsql
+    security definer
 as $$
 declare
     a spr_admin.web_log_get_t;
@@ -28,23 +31,30 @@ begin
 
     return a;
 end;
-$$ language plpgsql stable;
+$$;
 
 
-create function spr_admin.web_log_get (req jsonb)
-returns jsonb
+create function spr_admin.web_log_get (
+    req jsonb
+)
+    returns jsonb
+    language sql
+    security definer
 as $$
     select to_jsonb(spr_admin.web_log_get(
         jsonb_populate_record(
             null::spr_admin.web_log_get_it,
             spr_admin.auth(req))
     ))
-$$ language sql stable;
+$$;
 
 
 
 \if :test
-    create function tests.test_web_log_get () returns setof text as $$
+    create function tests.test_web_log_get ()
+        returns setof text
+        language plpgsql
+    as $$
     declare
         sid jsonb = tests.session_as_admin();
         a jsonb;
@@ -53,5 +63,5 @@ $$ language sql stable;
         a = spr_admin.web_log_get(sid);
         return next ok(jsonb_array_length(a->'logs') = 1, 'able to get log');
     end;
-    $$ language plpgsql;
+    $$;
 \endif

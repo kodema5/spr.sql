@@ -9,8 +9,13 @@ create function spr.errors (
     load_cod float default null,
     load_nh3n float default null,
     load_tss float default null,
-    load_total float default null)
-returns text[] as $$
+    load_total float default null
+)
+    returns text[]
+    language sql
+    security definer
+    stable
+as $$
     select array_agg(err) from (
 
         select case when p.has_ph and ph is null then 'error.missing_ph' else null end
@@ -48,4 +53,4 @@ returns text[] as $$
         select case when p.has_tss and tss>p.max_tss then 'error.above_max_tss' else null end
     ) errs (err)
     where err is not null
-$$ language sql stable;
+$$;

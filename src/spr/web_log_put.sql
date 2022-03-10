@@ -11,9 +11,12 @@ create type spr.web_log_put_t as (
     ts bigint
 );
 
-create function spr.web_log_put(
-    it spr.web_log_put_it)
-returns spr.web_log_put_t
+create function spr.web_log_put (
+    it spr.web_log_put_it
+)
+    returns spr.web_log_put_t
+    language plpgsql
+    security definer
 as $$
 declare
     a spr.web_log_put_t;
@@ -38,11 +41,15 @@ begin
 
     return a;
 end;
-$$ language plpgsql;
+$$;
 
 
-create function spr.web_log_put(req jsonb)
-returns jsonb
+create function spr.web_log_put (
+    req jsonb
+)
+    returns jsonb
+    language plpgsql
+    security definer
 as $$
 begin
     return to_jsonb(spr.web_log_put(
@@ -54,10 +61,13 @@ exception
     when invalid_parameter_value then
         raise exception 'error.unrecognized_format';
 end;
-$$ language plpgsql stable;
+$$;
 
 \if :test
-    create function tests.test_spr_web_log_put() returns setof text as $$
+    create function tests.test_spr_web_log_put ()
+        returns setof text
+        language plpgsql
+    as $$
     declare
         a jsonb;
     begin
@@ -74,5 +84,5 @@ $$ language plpgsql stable;
         a = spr.web_log_put(jsonb_build_object('id', 'dev1'));
         return next ok(a->>'ts' is not null, 'able to put data');
     end;
-    $$ language plpgsql;
+    $$;
 \endif

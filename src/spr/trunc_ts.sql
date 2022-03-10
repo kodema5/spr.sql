@@ -2,8 +2,12 @@
 --
 create function spr.trunc_tz(
     tz timestamp with time zone,
-    type text default 'min2')
-returns timestamp with time zone
+    type text default 'min2'
+)
+    returns timestamp with time zone
+    language sql
+    security definer
+    stable
 as $$
     select case
     when type='min'
@@ -19,13 +23,17 @@ as $$
     -- '300' = 5 minutes
     else to_timestamp(floor(extract(epoch from tz) / type::float) * type::float)
     end
-$$ language sql stable;
+$$;
 
 
 create function spr.trunc_ts(
     ts bigint,
-    int_ts float default 120.0)
-returns bigint
+    int_ts float default 120.0
+)
+    returns bigint
+    language sql
+    security definer
+    stable
 as $$
     select floor(ts / int_ts) * int_ts
-$$ language sql stable;
+$$;

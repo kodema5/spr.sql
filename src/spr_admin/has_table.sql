@@ -1,7 +1,11 @@
 create function spr_admin.has_table(
     tbl text,
-    sch text default 'spr_')
-returns boolean
+    sch text default 'spr_'
+)
+    returns boolean
+    language sql
+    security definer
+    stable
 as $$
     select exists(
         select 1 from pg_catalog.pg_class c
@@ -10,4 +14,4 @@ as $$
         and c.relname = tbl
         and c.relkind = 'r'
     )
-$$ language sql stable;
+$$;

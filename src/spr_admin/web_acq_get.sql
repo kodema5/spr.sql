@@ -6,12 +6,15 @@ create type spr_admin.web_acq_get_it as (
 );
 
 create type spr_admin.web_acq_get_t as (
-    acqs jsonb
+    acqs jsonb -- { logger_id: [acqs] }
 );
 
 create function spr_admin.web_acq_get (
-    it spr_admin.web_acq_get_it)
-returns spr_admin.web_acq_get_t
+    it spr_admin.web_acq_get_it
+)
+    returns spr_admin.web_acq_get_t
+    language plpgsql
+    security definer
 as $$
 declare
     a spr_admin.web_acq_get_t;
@@ -27,29 +30,36 @@ begin
     into a.acqs
     from (
         select ds.logger_id,
-            jsonb_agg(to_jsonb(ds)) as rows
+            array_agg(ds) as rows
         from spr_.acq ds
         where ts between it.acq_min_ts and it.acq_max_ts
         group by ds.logger_id
     ) rs;
     return a;
 end;
-$$ language plpgsql;
+$$;
 
 
-create function spr_admin.web_acq_get (req jsonb)
-returns jsonb
+create function spr_admin.web_acq_get (
+    req jsonb
+)
+    returns jsonb
+    language sql
+    security definer
 as $$
     select to_jsonb(spr_admin.web_acq_get(
         jsonb_populate_record(
             null::spr_admin.web_acq_get_it,
             spr_admin.auth(req))
     ))
-$$ language sql stable;
+$$;
 
 
 \if :test
-    create function tests.test_spr_admin_web_acq_get () returns setof text as $$
+    create function tests.test_spr_admin_web_acq_get ()
+        returns setof text
+        language plpgsql
+    as $$
     declare
         sid jsonb = tests.session_as_admin();
         a jsonb;
@@ -62,5 +72,5 @@ $$ language sql stable;
 
         return next ok((a->'acqs'->'dev1'->0->>'ph')::numeric = 1, 'able to get data');
     end;
-    $$ language plpgsql;
+    $$;
 \endif

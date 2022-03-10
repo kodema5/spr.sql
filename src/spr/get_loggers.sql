@@ -4,9 +4,14 @@ create type spr.get_loggers_it as (
     logger_tags text[]
 );
 
-create function spr.is_empty(
-    it spr.get_loggers_it)
-returns boolean
+
+create function spr.is_empty (
+    it spr.get_loggers_it
+)
+    returns boolean
+    language sql
+    security definer
+    stable
 as $$
     select case
     when it is null then true
@@ -16,11 +21,16 @@ as $$
         and (it.logger_tags is null or cardinality(it.logger_tags)=0)
     )
     end;
-$$ language sql stable;
+$$;
 
-create function spr.get_loggers(
-    it spr.get_loggers_it)
-returns setof spr_.logger
+
+create function spr.get_loggers (
+    it spr.get_loggers_it
+)
+    returns setof spr_.logger
+    language sql
+    security definer
+    stable
 as $$
     select ds
     from spr_.logger ds,
@@ -31,13 +41,16 @@ as $$
     and ( it.logger_name is null
         or name ~* it.logger_name)
     and tags ~ (ts.t::lquery)
-$$ language sql stable;
+$$;
 
 
-create function spr.get_loggers(
+create function spr.get_loggers (
     req jsonb,
-    is_required boolean default true)
-returns setof spr_.logger
+    is_required boolean default true
+)
+    returns setof spr_.logger
+    language plpgsql
+    security definer
 as $$
 declare
     it spr.get_loggers_it = jsonb_populate_record(null::spr.get_loggers_it, req);
@@ -53,11 +66,14 @@ begin
         select *
         from spr.get_loggers(it);
 end;
-$$ language plpgsql;
+$$;
 
 
 \if :test
-    create function tests.test_spr_get_loggers() returns setof text as $$
+    create function tests.test_spr_get_loggers ()
+        returns setof text
+        language plpgsql
+    as $$
     declare
         a jsonb;
         ls spr_.logger[];
@@ -104,5 +120,5 @@ $$ language plpgsql;
         return next ok(ls is null, 'no logger by id');
 
     end;
-    $$ language plpgsql;
+    $$;
 \endif

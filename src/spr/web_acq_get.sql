@@ -13,12 +13,16 @@ create type spr.get_acq_avgs_t as (
 );
 
 
-create function spr.get_acq_avgs(
+create function spr.get_acq_avgs (
     logger_id text,
     acq_min_ts bigint,
     acq_max_ts bigint,
-    acq_int_ts bigint)
-returns setof spr.get_acq_avgs_t
+    acq_int_ts bigint
+)
+    returns setof spr.get_acq_avgs_t
+    language sql
+    security definer
+    stable
 as $$
     select
         acq.logger_id,
@@ -36,7 +40,7 @@ as $$
     where logger_id = get_acq_avgs.logger_id
     and ts between acq_min_ts and acq_max_ts
     group by acq.logger_id, int_ts
-$$ language sql stable;
+$$;
 
 
 create type spr.get_acq_calcs_t as (
@@ -53,11 +57,15 @@ create type spr.get_acq_calcs_t as (
 );
 
 
-create function spr.get_acq_calcs(
+create function spr.get_acq_calcs (
     logger spr_.logger,
     avg spr.get_acq_avgs_t,
-    calc_method text default 'avg')
-returns spr.get_acq_calcs_t
+    calc_method text default 'avg'
+)
+    returns spr.get_acq_calcs_t
+    language sql
+    security definer
+    stable
 as $$
     select jsonb_populate_record(null::spr.get_acq_calcs_t, to_jsonb(td.*))
     from (
@@ -106,7 +114,7 @@ as $$
             ) tb
         ) tc
     ) td;
-$$ language sql stable;
+$$;
 
 
 create type spr.web_acq_get_it as (
@@ -121,12 +129,15 @@ create type spr.web_acq_get_it as (
 
 create type spr.web_acq_get_t as (
     loggers spr_.logger[],
-    acqs jsonb
+    acqs jsonb -- { logger_id: [get_acq_calcs_t]}
 );
 
-create function spr.web_acq_get(
-    it spr.web_acq_get_it)
-returns spr.web_acq_get_t
+create function spr.web_acq_get (
+    it spr.web_acq_get_it
+)
+    returns spr.web_acq_get_t
+    language plpgsql
+    security definer
 as $$
 declare
     a spr.web_acq_get_t;
@@ -164,22 +175,29 @@ begin
     a.acqs = res;
     return a;
 end;
-$$ language plpgsql stable;
+$$;
 
 
-create function spr.web_acq_get (req jsonb)
-returns jsonb
+create function spr.web_acq_get (
+    req jsonb
+)
+    returns jsonb
+    language sql
+    security definer
 as $$
     select to_jsonb(spr.web_acq_get(
         jsonb_populate_record(
             null::spr.web_acq_get_it,
             spr.auth(req))
     ))
-$$ language sql;
+$$;
 
 
 \if :test
-    create function tests.test_spr_web_acq_get() returns setof text as $$
+    create function tests.test_spr_web_acq_get ()
+        returns setof text
+        language plpgsql
+    as $$
     declare
         sid jsonb = tests.session_as_admin();
         a jsonb;
@@ -202,7 +220,6 @@ $$ language sql;
             'calc_method', 'mid'
         ));
         return next ok(a['acqs']['dev1'][0]['ph']::numeric = 3.5, 'pH value is mid-range');
-
     end;
-    $$ language plpgsql;
+    $$;
 \endif

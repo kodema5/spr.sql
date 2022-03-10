@@ -8,8 +8,13 @@ create type spr_admin.acq_t as (
     debit float
 );
 
-create function spr_admin.to_acq (r spr_.log)
-returns spr_admin.acq_t
+create function spr_admin.to_acq (
+    r spr_.log
+)
+    returns spr_admin.acq_t
+    language sql
+    security definer
+    stable
 as $$
     select (
         (r.data)->>'id',
@@ -20,7 +25,7 @@ as $$
         ((r.data)->>'tss')::float,
         ((r.data)->>'debit')::float
     )::spr_admin.acq_t;
-$$ language sql stable;
+$$;
 
 
 create type spr_admin.web_acq_put_it as (
@@ -38,8 +43,11 @@ create type spr_admin.web_acq_put_t as (
 );
 
 create function spr_admin.web_acq_put (
-    it spr_admin.web_acq_put_it)
-returns spr_admin.web_acq_put_t
+    it spr_admin.web_acq_put_it
+)
+    returns spr_admin.web_acq_put_t
+    language plpgsql
+    security definer
 as $$
 declare
     a spr_admin.web_acq_put_t;
@@ -131,22 +139,29 @@ begin
     return a;
 
 end;
-$$ language plpgsql;
+$$;
 
 
-create function spr_admin.web_acq_put (req jsonb)
-returns jsonb
+create function spr_admin.web_acq_put (
+    req jsonb
+)
+    returns jsonb
+    language sql
+    security definer
 as $$
     select to_jsonb(spr_admin.web_acq_put(
         jsonb_populate_record(
             null::spr_admin.web_acq_put_it,
             spr_admin.auth(req))
     ))
-$$ language sql stable;
+$$;
 
 
 \if :test
-    create function tests.test_spr_admin_web_acq_put () returns setof text as $$
+    create function tests.test_spr_admin_web_acq_put ()
+        returns setof text
+        language plpgsql
+    as $$
     declare
         sid jsonb = tests.session_as_admin();
         a jsonb;
@@ -170,5 +185,5 @@ $$ language sql stable;
             ) ~ 'error.below_min_ph'
         , 'able to calc errors');
     end;
-    $$ language plpgsql;
+    $$;
 \endif
