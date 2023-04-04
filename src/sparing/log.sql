@@ -82,13 +82,15 @@ $$;
 -- leaving it < 1 day worth of data
 --
 create function sparing.trim_log()
-    returns void
+    returns int
     language plpgsql
 as $$
 declare
     r record;
     ts timestamp with time zone[];
     t timestamp with time zone;
+    n int = 0;
+    i int;
 begin
     -- prepare tables
     --
@@ -113,17 +115,27 @@ begin
                 delete from only sparing_.log
                 where tz >= ''%s''::timestamp with time zone
                 and tz < ''%s''::timestamp with time zone
+                and loaded
                 returning *
+            ),
+            inserted as (
+                insert into sparing_.%s
+                    select * from deleted
+                returning 1
             )
-            insert into sparing_.%s
-            select * from deleted
+            select count(1)
+                from inserted
         ',
             t,
             t + interval '1 day',
             sparing.log_partition_name(t)
-        );
+        )
+        into i;
+
+        n = n + i;
     end loop;
 
+    return n;
 end;
 $$;
 
@@ -152,7 +164,11 @@ $$;
             (timestamp '2010-02-01 15:00:00', '{"id":"bbb"}'),
             (timestamp '2010-02-01 16:00:00', '{"id":"ccc"}');
 
-        perform sparing.trim_log();
+        n =  sparing.trim_log();
+        return next ok(n = 0, 'dont trim unloaded log');
+        update sparing_.log set loaded = true;
+        n =  sparing.trim_log();
+        return next ok(n = 3, 'loaded log only');
 
         return next ok(
                 (select count(1) from sparing_.log)=4,

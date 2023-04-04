@@ -11,7 +11,7 @@ create table if not exists sparing_.logger (
 
 -- sparing_.acq contains loaded log
 -- trim_acq let table contains last 1 day worth of data
--- else partitioned to acq_(logger_id) table
+-- else partitioned to acq_(logger_id)
 --
 create table if not exists sparing_.acq (
     logger_id text
@@ -112,7 +112,6 @@ as $$
                 avg(nh3n) as nh3n,
                 avg(tss) as tss
             from (
-                -- want to have
                 select (sparing.log_t(l)).*
                 from sparing_.log l
                 where tz >= min_tz_
@@ -125,6 +124,9 @@ as $$
 $$;
 
 
+-- checks unloaded log in ONLY sparing_.log table (not its partitions)
+-- to be loaded to acq table
+--
 create function sparing.load_acq ()
     returns int
     language sql
@@ -190,9 +192,16 @@ begin
 end;
 $$;
 
-
+-- trim older than 1-day acq table
+-- partition trims by logger_id
+--
+-- sparing.get retrieves by each logger id,
+-- at most hit 2 tables: acq and acq_(logger_id) tables
+--
+-- query for 1-day old acq hits trimmed acq table only
+--
 create function sparing.trim_acq ()
-    returns void
+    returns int
     language plpgsql
     security definer
 as $$
@@ -201,7 +210,9 @@ declare
     ls text[];
     l text;
     max_tz timestamp with time zone
-        = date_trunc('day', clock_timestamp());
+        = clock_timestamp() - interval '1 day';
+    n int = 0;
+    i int;
 begin
     -- prepare tables
     --
@@ -219,10 +230,11 @@ begin
 
     if ls is null
     then
-        raise warning 'nothing to import';
-        return;
+        return 0;
     end if;
 
+    -- partition by logger_id
+    --
     foreach l in array ls
     loop
         execute format('
@@ -233,17 +245,27 @@ begin
                     bin_tz < ''%s''::timestamp with time zone
                     and logger_id=''%s''
                 returning *
+            ),
+            inserted as (
+                insert into sparing_.%s
+                select * from deleted
+                returning 1
             )
-            insert into sparing_.%s
-            select * from deleted
+            select count(1) from inserted
         ',
             max_tz,
             l,
             sparing.acq_partition_name(l)
-        );
+        )
+        into i;
+
+        n = n + 1;
     end loop;
+
+    return n;
 end;
 $$;
+
 
 \if :test
     create function tests.test_acq ()
@@ -268,7 +290,10 @@ $$;
         n = sparing.load_acq();
         return next ok(n=0, 'skips loaded log');
 
-        perform sparing.trim_acq();
+        n = sparing.trim_acq();
+        return next ok(n=1, '1 old acq trimmed');
+        n = sparing.trim_acq();
+        return next ok(n=0, 'no more old acq to be trimmed');
 
         select * into a from only sparing_.acq limit 1;
         return next ok(a.n=1, 'acq has most recent');
