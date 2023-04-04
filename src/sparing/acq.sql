@@ -89,7 +89,7 @@ create function sparing.load_acq (
     min_tz_ timestamp with time zone,
     max_tz_ timestamp with time zone
 )
-    returns void
+    returns int
     language sql
     security definer
 as $$
@@ -99,37 +99,47 @@ as $$
     deleted as (
         delete from sparing_.acq
         where bin_tz between min_tz_ and max_tz_
+    ),
+    inserted as (
+        insert into sparing_.acq
+            select
+                logger_id,
+                bin_tz,
+                count(1) as n,
+                avg(debit) as debit,
+                avg(ph) as ph,
+                avg(cod) as cod,
+                avg(nh3n) as nh3n,
+                avg(tss) as tss
+            from (
+                -- want to have
+                select (sparing.log_t(l)).*
+                from sparing_.log l
+                where tz >= min_tz_
+                and tz <= max_tz_
+            ) t
+            group by logger_id, bin_tz
+        returning 1
     )
-    insert into sparing_.acq
-        select
-            logger_id,
-            bin_tz,
-            count(1) as n,
-            avg(debit) as debit,
-            avg(ph) as ph,
-            avg(cod) as cod,
-            avg(nh3n) as nh3n,
-            avg(tss) as tss
-        from (
-            -- want to have
-            select (sparing.log_t(l)).*
-            from sparing_.log l
-            where tz >= min_tz_
-            and tz <= max_tz_
-        ) t
-        group by logger_id, bin_tz
+    select count(1) from inserted
 $$;
 
 
 create function sparing.load_acq ()
-    returns void
+    returns int
     language sql
     security definer
 as $$
     with
+    updated as (
+        update only sparing_.log
+        set loaded = true
+        where not loaded
+        returning *
+    ),
     minmax_tz as (
         select min(tz) as min_tz, max(tz) as max_tz
-        from only sparing_.log
+        from updated
     )
     select sparing.load_acq(
         min_tz_ := mm.min_tz,
@@ -242,6 +252,7 @@ $$;
     as $$
     declare
         a sparing_.acq;
+        n int;
     begin
         insert into sparing_.logger (id)
         values ('aaa');
@@ -252,7 +263,11 @@ $$;
             (timestamp '2010-01-01 15:01:02', '{"id":"aaa","ph":1}'),
             (timestamp '2010-01-01 15:01:03', '{"id":"aaa","ph":2}');
 
-        perform sparing.load_acq();
+        n = sparing.load_acq();
+        return next ok(n=2, 'inserts 2 acqs');
+        n = sparing.load_acq();
+        return next ok(n=0, 'skips loaded log');
+
         perform sparing.trim_acq();
 
         select * into a from only sparing_.acq limit 1;
@@ -264,5 +279,3 @@ $$;
     end;
     $$;
 \endif
-
-

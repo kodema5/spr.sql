@@ -6,7 +6,8 @@ create table if not exists sparing_.log (
     id serial,
     tz timestamp with time zone
         default now(),
-    data jsonb
+    data jsonb,
+    loaded boolean default false
 );
 
 create function sparing.has_table(
